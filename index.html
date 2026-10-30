@@ -130,6 +130,9 @@ textarea{width:100%;min-height:90px;font:12px ui-monospace,monospace;background:
 .big.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .big.on{animation:pulse 1s infinite}
 .big:active{transform:scale(.98)}
+.meter{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin:2px 4px 4px}
+.meterbar{height:100%;width:0;background:var(--accent);transition:width .08s}
+.meterlabel{font-size:11px;color:var(--muted);text-align:center;margin-bottom:8px;min-height:14px}
 </style>
 </head>
 <body>
@@ -409,14 +412,22 @@ function renderSpeak(c,st){
     <div class="phon"><span>${esc(phon||'')}</span></div>
     ${result?resultBanner(c,st)+backBlock(c,false):`<div class="hint" id="michint">${attempts?`Ouvi: <b>${esc(lastHeard||'…')}</b>. Tentativa ${attempts+1} de 3.`:'Toque no card para ouvir. Depois toque em Falar, espere "Fale agora" e diga a palavra.'}</div>`}
   </div>
-  <div class="actions">${result?`<div class="btnrow" style="justify-content:space-between"><button class="btn" id="easy" ${result.g<2?'hidden':''}>Foi fácil</button><button class="btn primary" id="next" style="flex:1">Continuar</button></div>`:`<div class="bigbtns"><button class="big" id="hear" data-spk>${SPK_SVG}<span>Ouvir</span></button><button class="big primary" id="mic">${MIC_SVG}<span>Falar</span></button></div><div class="btnrow"><button class="btn small" id="skipmic" style="flex:1;color:var(--muted)">Não consigo falar agora (conta como Errei)</button></div>`}</div>`;
+  <div class="actions">${result?`<div class="btnrow" style="justify-content:space-between"><button class="btn" id="easy" ${result.g<2?'hidden':''}>Foi fácil</button><button class="btn primary" id="next" style="flex:1">Continuar</button></div>`:`<div class="bigbtns"><button class="big" id="hear" data-spk>${SPK_SVG}<span>Ouvir</span></button><button class="big primary" id="mic">${MIC_SVG}<span>Falar</span></button></div><div class="meter" id="meter"><div class="meterbar" id="meterbar"></div></div><div class="meterlabel" id="meterlabel"></div><div class="btnrow"><button class="btn small" id="skipmic" style="flex:1;color:var(--muted)">Não consigo falar agora (conta como Errei)</button></div>`}</div>`;
   wireCommon(c,st);
   document.getElementById('card').onclick=e=>{if(!e.target.closest('button'))playWord(c)};
   const mic=document.getElementById('mic'); if(mic)mic.onclick=()=>listen(c);
   const sk=document.getElementById('skipmic'); if(sk)sk.onclick=()=>{result={g:0,heard:lastHeard||''};renderStage()};
 }
 let lastHeard='';
-let stopTimer=null,recBusy=false;
+let stopTimer=null,recBusy=false,evlog=[],meterStream=null,meterRaf=null,meterCtx=null;
+async function meterStart(){try{
+  const wrap=document.getElementById('meter');if(!wrap||!navigator.mediaDevices)return;
+  meterStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  meterCtx=new (window.AudioContext||window.webkitAudioContext)();const src=meterCtx.createMediaStreamSource(meterStream);const an=meterCtx.createAnalyser();an.fftSize=512;src.connect(an);const buf=new Uint8Array(an.fftSize);
+  const label=meterStream.getAudioTracks()[0]?.label||'';const lb=document.getElementById('meterlabel');if(lb)lb.textContent=label?'Mic: '+label:'';
+  let peak=0;const tick=()=>{an.getByteTimeDomainData(buf);let m=0;for(let i=0;i<buf.length;i++){const v=Math.abs(buf[i]-128);if(v>m)m=v}peak=Math.max(peak*0.9,m);const bar=document.getElementById('meterbar');if(bar)bar.style.width=Math.min(100,peak*2.2)+'%';meterRaf=requestAnimationFrame(tick)};tick();
+}catch(e){const lb=document.getElementById('meterlabel');if(lb)lb.textContent='Sem acesso ao microfone: '+e.name}}
+function meterStop(){try{cancelAnimationFrame(meterRaf);if(meterStream)meterStream.getTracks().forEach(t=>t.stop());if(meterCtx)meterCtx.close()}catch(e){}meterStream=null;meterCtx=null;const bar=document.getElementById('meterbar');if(bar)bar.style.width='0%'}
 function setMicUI(state,txt){const mic=document.getElementById('mic'),hint=document.getElementById('michint');
   if(mic){mic.classList.toggle('on',state==='on');mic.querySelector('span').textContent=state==='on'?'Parar':state==='prep'?'Preparando…':'Falar'}
   if(hint&&txt!=null)hint.innerHTML=txt}
@@ -425,15 +436,15 @@ function listen(c){
   if(recBusy){setMicUI('prep','Um instante…');setTimeout(()=>listen(c),400);return}
   try{audioEl.pause()}catch(e){}
   if('speechSynthesis' in window)speechSynthesis.cancel();
-  let finalAlts=null,interim='',gotAudio=false;
+  let finalAlts=null,interim='',gotAudio=false;evlog=[];const ev_=n=>{evlog.push(n)};meterStart();
   const armStop=ms=>{clearTimeout(stopTimer);stopTimer=setTimeout(()=>{try{rec.stop()}catch(e){}},ms)};
   try{
     rec=new SR();rec.lang=S.settings.voice;rec.maxAlternatives=5;rec.interimResults=true;rec.continuous=true;
     listening=true;recBusy=true;setMicUI('prep','Preparando o microfone…');
-    rec.onstart=()=>{gotAudio=true;setMicUI('on','Fale agora.');armStop(6000)};
-    rec.onaudiostart=()=>{gotAudio=true;setMicUI('on','Fale agora.');armStop(6000)};
-    rec.onspeechstart=()=>setMicUI('on','Ouvindo…');
-    rec.onresult=ev=>{try{
+    rec.onstart=()=>{ev_('start');gotAudio=true;setMicUI('on','Fale agora.');armStop(6000)};
+    rec.onaudiostart=()=>{ev_('audio');gotAudio=true;setMicUI('on','Fale agora.');armStop(6000)};
+    rec.onspeechstart=()=>{ev_('speech');setMicUI('on','Ouvindo…')};rec.onsoundstart=()=>ev_('sound');rec.onsoundend=()=>ev_('soundend');rec.onspeechend=()=>ev_('speechend');rec.onnomatch=()=>ev_('nomatch');
+    rec.onresult=ev=>{ev_('result');try{
       const alts=[];let isFinal=false;
       for(let i=0;i<ev.results.length;i++){const res=ev.results[i];if(res.isFinal)isFinal=true;for(let j=0;j<res.length;j++){const t=res.item?res.item(j).transcript:res[j].transcript;if(t)alts.push(t)}}
       if(isFinal){finalAlts=alts;try{rec.stop()}catch(e){}}
@@ -441,11 +452,11 @@ function listen(c){
     }catch(e){setMicUI('on','Erro ao ler resultado: '+esc(e.message))}};
     rec.onerror=ev=>{
       const m={'not-allowed':'Microfone bloqueado. Permita o acesso nas configurações do Safari para este site.','service-not-allowed':'Reconhecimento indisponível: ative Ajustes → Siri e Busca → Ditado.','no-speech':'Não ouvi nada. Toque em Falar e fale em seguida.','audio-capture':'Nenhum microfone encontrado.','network':'Sem rede para o reconhecimento.','aborted':''};
-      const t=m[ev.error]!=null?m[ev.error]:'Erro: '+esc(ev.error); if(t)setMicUI('off',t)};
-    rec.onend=()=>{clearTimeout(stopTimer);listening=false;setTimeout(()=>{recBusy=false},600);
+      ev_('erro:'+ev.error);const t=m[ev.error]!=null?m[ev.error]:'Erro: '+esc(ev.error); if(t)setMicUI('off',t)};
+    rec.onend=()=>{ev_('end');meterStop();clearTimeout(stopTimer);listening=false;setTimeout(()=>{recBusy=false},600);
       if(finalAlts&&finalAlts.length){lastHeard=finalAlts[0];judgeSpoken(finalAlts,c)}
       else if(interim){lastHeard=interim;judgeSpoken([interim],c)}
-      else{const h=document.getElementById('michint');if(h&&/Fale agora|Ouvindo|Preparando/.test(h.textContent))setMicUI('off',gotAudio?'Não reconheci nada. Toque em Falar e diga a palavra com clareza.':'O microfone não abriu. Toque em Falar de novo.');else setMicUI('off',null)}};
+      else{const h=document.getElementById('michint');if(h&&/Fale agora|Ouvindo|Preparando/.test(h.textContent))setMicUI('off',(gotAudio?(evlog.includes('sound')?'Captei som, mas não entendi nenhuma palavra. Tente de novo, mais devagar.':'O microfone abriu, mas nenhum som chegou. Veja o medidor: se não mexer ao falar, o navegador está usando outro dispositivo de entrada.'):'O microfone não abriu. Toque em Falar de novo.')+' <small style="opacity:.6">['+evlog.join(' › ')+']</small>');else setMicUI('off',null)}};
     rec.start();
   }catch(e){listening=false;recBusy=false;setMicUI('off','Não consegui iniciar o microfone: '+esc(e.message))}
 }
