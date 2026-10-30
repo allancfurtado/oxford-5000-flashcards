@@ -332,6 +332,7 @@ function renderStage(){
     return;
   }
   const c=byId.get(current),st=getCard(current),m=mode();
+  preloadWord(c);
   if(m==='type')return renderType(c,st);
   if(m==='speak')return renderSpeak(c,st);
   const pt=frontIsPT();
@@ -388,7 +389,7 @@ function gradeTyped(typed,word,hinted){
 }
 // ---- speaking mode ----
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let rec=null,listening=false;
+let rec=null,listening=false,retried=false;
 function renderSpeak(c,st){
   const stage=document.getElementById('stage');
   const phon=S.settings.voice==='en-GB'?c[F.puk]:c[F.pus];
@@ -408,9 +409,11 @@ function renderSpeak(c,st){
 let lastHeard='';
 function listen(c){
   if(listening)return;
+  if(!arguments[1])retried=false;
   const mic=document.getElementById('mic'),hint=document.getElementById('michint');
   const say=t=>{if(hint)hint.innerHTML=t};
   try{
+    try{audioEl.pause()}catch(e){}
     rec=new SR();rec.lang=S.settings.voice;rec.maxAlternatives=5;rec.interimResults=true;rec.continuous=false;
     listening=true;if(mic)mic.classList.add('on');say('Ouvindo… fale agora.');
     let finalAlts=null,interim='';
@@ -428,7 +431,7 @@ function listen(c){
     rec.onend=()=>{listening=false;if(mic)mic.classList.remove('on');
       if(finalAlts&&finalAlts.length){lastHeard=finalAlts[0];judgeSpoken(finalAlts,c)}
       else if(interim){lastHeard=interim;judgeSpoken([interim],c)}
-      else if(hint&&/^Ouvindo/.test(hint.textContent))say('Terminou sem reconhecer nada. Tente de novo falando logo após tocar.')};
+      else if(hint&&/^Ouvindo/.test(hint.textContent)){if(!retried){retried=true;say('Não captei. Tentando de novo, fale agora…');setTimeout(()=>{listening=false;listen(c,true)},250)}else say('Terminou sem reconhecer nada. Toque no microfone e fale logo em seguida.')}};
     rec.start();
   }catch(e){listening=false;if(mic)mic.classList.remove('on');say('Não consegui iniciar o microfone: '+esc(e.message))}
 }
@@ -442,17 +445,23 @@ function judgeSpoken(alts,c){
 }
 function flip(){flipped=true;renderStage();if(S.settings.auto&&frontIsPT())playWord(byId.get(current))}
 // ---- audio: Oxford recording, fallback to device voice ----
-let audioEl=null;
+const audioEl=new Audio(); audioEl.preload='auto'; let audioUnlocked=false, audioSrcFor='';
+function audioUrl(c){const acc=S.settings.voice==='en-GB'?'uk':'us';const stem=c[F.au]||c[F.w];return 'audio/'+acc+'/'+encodeURIComponent(stem+'_'+acc+'.mp3')}
+function preloadWord(c){try{const u=audioUrl(c);if(audioSrcFor!==u){audioEl.src=u;audioSrcFor=u;audioEl.load()}}catch(e){}}
 function playWord(c){
-  const acc=S.settings.voice==='en-GB'?'uk':'us';
-  const stem=c[F.au]||c[F.w];
   try{
-    if(audioEl){audioEl.pause()}
-    audioEl=new Audio('audio/'+acc+'/'+encodeURIComponent(stem+'_'+acc+'.mp3'));
+    if(listening&&rec){try{rec.abort()}catch(e){}}
+    if('speechSynthesis' in window)speechSynthesis.cancel();
+    preloadWord(c);
+    audioEl.currentTime=0;
+    const pr=audioEl.play();
+    audioUnlocked=true;
+    if(pr&&pr.catch)pr.catch(()=>speak(c[F.w]));
     audioEl.onerror=()=>speak(c[F.w]);
-    audioEl.play().catch(()=>speak(c[F.w]));
   }catch(e){speak(c[F.w])}
 }
+// unlock audio on the first touch anywhere (iOS exige gesto do usuário)
+document.addEventListener('touchend',function unlock(){if(audioUnlocked)return;try{audioEl.muted=true;const p=audioEl.play();if(p&&p.then)p.then(()=>{audioEl.pause();audioEl.muted=false;audioUnlocked=true}).catch(()=>{audioEl.muted=false})}catch(e){}},{once:true,passive:true});
 function speak(t){try{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang=S.settings.voice;u.rate=0.9;const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-')===S.settings.voice);if(v)u.voice=v;speechSynthesis.speak(u)}catch(e){}}
 document.addEventListener('keydown',e=>{
   if(!document.getElementById('v-study').classList.contains('on')||current==null)return;
