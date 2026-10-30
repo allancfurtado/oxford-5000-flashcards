@@ -392,7 +392,7 @@ let rec=null,listening=false;
 function renderSpeak(c,st){
   const stage=document.getElementById('stage');
   const phon=S.settings.voice==='en-GB'?c[F.puk]:c[F.pus];
-  if(!SR){stage.innerHTML=`<div class="done"><h2>Sem microfone aqui</h2><p>Este navegador não tem reconhecimento de voz. Use Chrome, Edge ou Safari, ou troque o modo em Ajustes.</p></div>`;return}
+  if(!SR){stage.innerHTML=`<div class="done"><h2>Sem microfone aqui</h2><p>Este navegador não oferece reconhecimento de voz. No iPhone use o Safari; no computador e no Android, o Chrome ou o Edge (Firefox e Brave não funcionam). Ou troque o modo em Ajustes.</p></div>`;return}
   stage.innerHTML=`
   <div class="card ${result?'flipped':''}" id="card">
     ${metaLine(c,st)}
@@ -408,16 +408,29 @@ function renderSpeak(c,st){
 let lastHeard='';
 function listen(c){
   if(listening)return;
+  const mic=document.getElementById('mic'),hint=document.getElementById('michint');
+  const say=t=>{if(hint)hint.innerHTML=t};
   try{
-    rec=new SR();rec.lang=S.settings.voice;rec.maxAlternatives=5;rec.interimResults=false;rec.continuous=false;
-    const mic=document.getElementById('mic'),hint=document.getElementById('michint');
-    listening=true;mic.classList.add('on');hint.textContent='Ouvindo…';
-    let got=false;
-    rec.onresult=ev=>{got=true;const alts=[];for(const r of ev.results[0]){alts.push(r.transcript)}lastHeard=alts[0]||'';judgeSpoken(alts,c)};
-    rec.onerror=ev=>{listening=false;if(mic)mic.classList.remove('on');if(hint)hint.textContent=ev.error==='not-allowed'?'Permita o microfone no navegador e tente de novo.':ev.error==='no-speech'?'Não ouvi nada. Toque e fale mais perto do microfone.':'Erro: '+ev.error};
-    rec.onend=()=>{listening=false;if(mic)mic.classList.remove('on');if(!got&&hint&&hint.textContent==='Ouvindo…')hint.textContent='Não ouvi nada. Tente de novo.'};
+    rec=new SR();rec.lang=S.settings.voice;rec.maxAlternatives=5;rec.interimResults=true;rec.continuous=false;
+    listening=true;if(mic)mic.classList.add('on');say('Ouvindo… fale agora.');
+    let finalAlts=null,interim='';
+    rec.onstart=()=>say('Ouvindo… fale agora.');
+    rec.onaudiostart=()=>say('Ouvindo… (áudio captado)');
+    rec.onspeechstart=()=>say('Ouvindo… (voz detectada)');
+    rec.onresult=ev=>{try{
+      const alts=[];let isFinal=false;
+      for(let i=0;i<ev.results.length;i++){const res=ev.results[i];if(res.isFinal)isFinal=true;for(let j=0;j<res.length;j++){const t=res.item?res.item(j).transcript:res[j].transcript;if(t)alts.push(t)}}
+      if(isFinal){finalAlts=alts}else{interim=alts[0]||'';say('Ouvindo… <b>'+esc(interim)+'</b>')}
+    }catch(e){say('Erro ao ler resultado: '+esc(e.message))}};
+    rec.onerror=ev=>{listening=false;if(mic)mic.classList.remove('on');
+      const m={'not-allowed':'Microfone bloqueado. Permita o acesso nas configurações do navegador para este site.','service-not-allowed':'O navegador não permite o serviço de reconhecimento (Siri e Ditado desligados no iPhone? Navegador Brave?).','no-speech':'Não ouvi nada. Toque e fale logo em seguida, mais perto do microfone.','audio-capture':'Nenhum microfone encontrado.','network':'Sem rede para o reconhecimento (ele usa a internet).','aborted':'Captura interrompida.'};
+      say(m[ev.error]||('Erro: '+esc(ev.error)))};
+    rec.onend=()=>{listening=false;if(mic)mic.classList.remove('on');
+      if(finalAlts&&finalAlts.length){lastHeard=finalAlts[0];judgeSpoken(finalAlts,c)}
+      else if(interim){lastHeard=interim;judgeSpoken([interim],c)}
+      else if(hint&&/^Ouvindo/.test(hint.textContent))say('Terminou sem reconhecer nada. Tente de novo falando logo após tocar.')};
     rec.start();
-  }catch(e){listening=false;toast('Microfone indisponível')}
+  }catch(e){listening=false;if(mic)mic.classList.remove('on');say('Não consegui iniciar o microfone: '+esc(e.message))}
 }
 function judgeSpoken(alts,c){
   const w=norm(c[F.w]);
