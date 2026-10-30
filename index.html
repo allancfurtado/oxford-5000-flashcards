@@ -206,7 +206,7 @@ function hash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i)
 const NEW_ORDER=CARDS.slice().sort((a,b)=>LEVELS.indexOf(a[F.l])-LEVELS.indexOf(b[F.l])||hash(a[F.w]+a[F.t])-hash(b[F.w]+b[F.t]));
 
 // ---------- state ----------
-const DEFAULTS={newPerDay:20,dir:'en',auto:false,voice:'en-US',mode:'classic',levels:{a1:true,a2:true,b1:true,b2:true,c1:true}};
+const DEFAULTS={newPerDay:20,dir:'en',auto:false,voice:'en-US',mode:'speak',levels:{a1:true,a2:true,b1:true,b2:true,c1:true}};
 let S={cards:{},days:{},settings:{...DEFAULTS},updatedAt:0};
 const LS_KEY='ox5000-srs-v1';
 function lsLoad(){try{const r=localStorage.getItem(LS_KEY);if(r){const o=JSON.parse(r);if(o&&o.cards)return o}}catch(e){}return null}
