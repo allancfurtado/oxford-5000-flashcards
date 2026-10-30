@@ -122,6 +122,14 @@ textarea{width:100%;min-height:90px;font:12px ui-monospace,monospace;background:
 .mic.on{animation:pulse 1s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 45%,transparent)}100%{box-shadow:0 0 0 22px transparent}}
 .card.flipped .typebox,.card.flipped .micwrap{display:none}
+
+.card.tap{cursor:pointer}
+.bigbtns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.big{padding:18px 10px;border-radius:16px;border:1px solid var(--line);background:var(--card);font-weight:600;font-size:17px;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:var(--shadow)}
+.big svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.big.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.big.on{animation:pulse 1s infinite}
+.big:active{transform:scale(.98)}
 </style>
 </head>
 <body>
@@ -395,14 +403,15 @@ function renderSpeak(c,st){
   const phon=S.settings.voice==='en-GB'?c[F.puk]:c[F.pus];
   if(!SR){stage.innerHTML=`<div class="done"><h2>Sem microfone aqui</h2><p>Este navegador não oferece reconhecimento de voz. No iPhone use o Safari; no computador e no Android, o Chrome ou o Edge (Firefox e Brave não funcionam). Ou troque o modo em Ajustes.</p></div>`;return}
   stage.innerHTML=`
-  <div class="card ${result?'flipped':''}" id="card">
+  <div class="card tap ${result?'flipped':''}" id="card">
     ${metaLine(c,st)}
     <h2 class="word">${esc(c[F.w])}</h2>
-    <div class="phon"><span>${esc(phon||'')}</span><button class="spk" data-spk aria-label="ouvir">${SPK_SVG}</button></div>
-    ${result?resultBanner(c,st)+backBlock(c,false):`<div class="micwrap"><button class="mic" id="mic" aria-label="falar">${MIC_SVG}</button><div class="hint" id="michint">${attempts?`Ouvi: <b>${esc(lastHeard||'…')}</b>. Tentativa ${attempts+1} de 3.`:'Toque e diga a palavra.'}</div></div>`}
+    <div class="phon"><span>${esc(phon||'')}</span></div>
+    ${result?resultBanner(c,st)+backBlock(c,false):`<div class="hint" id="michint">${attempts?`Ouvi: <b>${esc(lastHeard||'…')}</b>. Tentativa ${attempts+1} de 3.`:'Toque no card para ouvir. Depois, "Falar".'}</div>`}
   </div>
-  <div class="actions">${result?`<div class="btnrow" style="justify-content:space-between"><button class="btn" id="easy" ${result.g<2?'hidden':''}>Foi fácil</button><button class="btn primary" id="next" style="flex:1">Continuar</button></div>`:`<div class="btnrow"><button class="btn" id="skipmic" style="flex:1">Não consigo falar agora (Errei)</button></div>`}</div>`;
+  <div class="actions">${result?`<div class="btnrow" style="justify-content:space-between"><button class="btn" id="easy" ${result.g<2?'hidden':''}>Foi fácil</button><button class="btn primary" id="next" style="flex:1">Continuar</button></div>`:`<div class="bigbtns"><button class="big" id="hear" data-spk>${SPK_SVG}<span>Ouvir</span></button><button class="big primary" id="mic">${MIC_SVG}<span>Falar</span></button></div><div class="btnrow"><button class="btn small" id="skipmic" style="flex:1;color:var(--muted)">Não consigo falar agora (conta como Errei)</button></div>`}</div>`;
   wireCommon(c,st);
+  document.getElementById('card').onclick=e=>{if(!e.target.closest('button'))playWord(c)};
   const mic=document.getElementById('mic'); if(mic)mic.onclick=()=>listen(c);
   const sk=document.getElementById('skipmic'); if(sk)sk.onclick=()=>{result={g:0,heard:lastHeard||''};renderStage()};
 }
